@@ -1,0 +1,51 @@
+name: Deploy GitHub Pages
+
+on:
+  push:
+    branches:
+      - main # 確保這裡符合你的主要分支名稱 (例如 main 或 master)
+
+# 設定權限以允許部署至 GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 允許同時執行一次部署，避免舊的進程蓋掉新的
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24' # 可依據你的開發環境調整
+          cache: 'npm' # 如果你是用 pnpm 或 yarn，請改成對應的名稱
+          
+      - name: Install dependencies
+        run: npm ci # 如果用 yarn 請換成 yarn install，pnpm 則是 pnpm i
+
+      - name: Build
+        run: npm run build
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './dist' # 這是 Vite 預設打包出的靜態檔案資料夾
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
