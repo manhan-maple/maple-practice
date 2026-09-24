@@ -8,7 +8,7 @@
         <textarea
           id="rawInput"
           v-model="rawInput"
-          placeholder="請在此貼上原始格式..."
+          placeholder="貼上資料（範例：白金神奇剪刀	MYNY8WKK...	2026/9/16 22:32）"
           rows="15"
         ></textarea>
         <button @click="processData">整理資料</button>
@@ -34,20 +34,16 @@
       <table>
         <thead>
           <tr>
-            <th>獲得日</th>
-            <th>時間</th>
-            <th>獎勵等級</th>
-            <th>獎勵名稱</th>
+            <th>道具名稱</th>
             <th>序號</th>
+            <th>獲得時間</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="(item, index) in parsedList" :key="index">
-            <td>{{ item.date }}</td>
-            <td>{{ item.time }}</td>
-            <td>{{ item.level }}</td>
             <td>{{ item.name }}</td>
             <td>{{ item.serial }}</td>
+            <td>{{ item.formattedDateTime }}</td>
           </tr>
         </tbody>
       </table>
@@ -60,11 +56,9 @@ import { ref } from 'vue';
 
 // 定義資料的介面
 interface RewardItem {
-  date: string;
-  time: string;
-  level: string;
   name: string;
   serial: string;
+  formattedDateTime: string;
 }
 
 const rawInput = ref('');
@@ -76,69 +70,61 @@ const processData = () => {
   const lines = rawInput.value.split('\n').map(line => line.trim()).filter(line => line !== '');
   const results: RewardItem[] = [];
   
-  let pendingDate = '';
-
   for (const line of lines) {
-    // 略過表頭
-    if (line.includes('獲得日') || line.includes('獎勵名稱') || line.includes('序號')) {
+    // 略過表頭列
+    if (line.includes('道具名稱') || line.includes('序號')) {
       continue;
     }
 
-    const parts = line.split('\t');
+    // 優先以 Tab 切割資料，若使用者複製時 Tab 變成空白，則退而求其次用兩個以上的空白切割
+    let parts = line.split('\t');
+    if (parts.length < 3) {
+      parts = line.split(/\s{2,}/);
+    }
 
-    // 判斷是否為獨立的日期行 (例如 09/16)
-    if (parts.length === 1 && /^\d{2}\/\d{2}$/.test(parts[0])) {
-      pendingDate = parts[0];
-    } else if (parts.length >= 4) {
-      // 處理資料行：時間、等級、名稱、序號
-      let date = pendingDate;
-      let time = parts[0];
-
-      // 預防極端情況：日期與時間在同一行且以空白分隔
-      if (parts[0].includes(' ')) {
-        const dt = parts[0].split(' ');
-        date = dt[0];
-        time = dt[1];
-      }
-
+    // 若確認有成功切分出至少 3 個欄位，就推入陣列
+    if (parts.length >= 3) {
       results.push({
-        date,
-        time,
-        level: parts[1],
-        name: parts[2],
-        serial: parts[3]
+        name: parts[0].trim(),
+        serial: parts[1].trim(),
+        // 為了防止日期與時間中間的單一空白被意外切斷，將後面的部分全部重新組合
+        formattedDateTime: parts.slice(2).join(' ').trim()
       });
     }
   }
 
   // 排序規則：
-  // 1. 獎勵名稱自然排序 (localeCompare 搭配 numeric: true 可正確判斷數字大小)
-  // 2. 獲得日順序 (將日期與時間合併進行字串比較，由舊至新)
+  // 1. 道具名稱自然排序 (localeCompare 搭配 numeric: true)
+  // 2. 獲得時間順序 (將時間字串轉為數值比較，由舊至新)
   results.sort((a, b) => {
     const nameCompare = a.name.localeCompare(b.name, undefined, { numeric: true });
     if (nameCompare !== 0) {
-      return nameCompare; // 若名稱不同，直接回傳名稱的比較結果
+      return nameCompare;
     }
 
-    // 名稱相同時，比較時間
-    const timeA = `${a.date} ${a.time}`;
-    const timeB = `${b.date} ${b.time}`;
-    return timeA.localeCompare(timeB);
+    // 當名稱相同時，進行時間比較
+    const timeA = new Date(a.formattedDateTime).getTime();
+    const timeB = new Date(b.formattedDateTime).getTime();
+    
+    // 防呆處理：若時間格式無效（例如 NaN），則回傳 0 維持原有順序
+    if (isNaN(timeA) || isNaN(timeB)) return 0;
+    
+    return timeA - timeB; // 升冪排序（數值小/舊的在前，數值大/新的在後）
   });
 
-  parsedList.value = results;
+  parsedList.value = results; 
   generateOutputText(results);
 };
 
 const generateOutputText = (data: RewardItem[]) => {
   if (data.length === 0) {
     processedOutput.value = '';
-    return; // 沒有資料時中斷並回傳
+    return; // 沒有資料時直接中斷並回傳空值
   }
 
-  const headers = ['獲得日', '時間', '獎勵等級', '獎勵名稱', '序號'];
+  const headers = ['道具名稱', '序號', '獲得時間'];
   const rows = data.map(item => 
-    `${item.date}\t${item.time}\t${item.level}\t${item.name}\t${item.serial}`
+    `${item.name}\t${item.serial}\t${item.formattedDateTime}`
   );
 
   processedOutput.value = [headers.join('\t'), ...rows].join('\n');
@@ -157,7 +143,7 @@ const copyOutput = async () => {
 <style scoped>
 .reward-sorter {
   font-family: sans-serif;
-  max-width: 1200px;
+  max-width: 1000px;
   margin: 0 auto;
   padding: 20px;
 }
